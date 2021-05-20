@@ -1,0 +1,11 @@
+{
+    "name": "benderalex/yii2-json-logger",
+    "description": "Logger for Yii2 for stdout in json format",
+    "authors": [
+        {
+            "name": "Aleksandr Sidelnik",
+            "email": "benderalex5@gmail.com"
+        }
+    ],
+    "require": {}
+}
