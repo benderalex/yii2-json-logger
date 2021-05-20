@@ -1,6 +1,10 @@
 <?php
 namespace benderalex\jsonlog;
 
+use yii\base\InvalidArgumentException;
+use yii\helpers\ArrayHelper;
+use yii\helpers\Json;
+use yii\helpers\VarDumper;
 use yii\log\LogRuntimeException;
 use yii\log\Target as BaseTarget;
 use yii\base\InvalidConfigException;
@@ -28,9 +32,11 @@ class Logger extends BaseTarget
 
     public $prefixString = '';
 
-
     protected $fp;
+
     protected $openedFp = false;
+
+    public $includeContext = true;
 
     /**
      * @inheritdoc
@@ -106,16 +112,85 @@ class Logger extends BaseTarget
         $this->closeFp();
     }
 
-    public function formatMessage($message)
+
+    /**
+     * @param $log
+     * @return array
+     */
+    protected static function formatTracesIfExists($log): array
     {
-        $text = $this->prefixString . trim(parent::formatMessage($message));
-        return $this->replaceNewline === null ?
-            $text :
-            str_replace("\n", $this->replaceNewline, $text);
+        $traces = ArrayHelper::getValue($log, 4, []);
+        $formattedTraces = array_map(static function ($trace) {
+            return "in {$trace['file']}:{$trace['line']}";
+        }, $traces);
+
+        $message = ArrayHelper::getValue($log, 0);
+        if ($message instanceof \Exception) {
+            $tracesFromException = explode("\n", $message->getTraceAsString());
+            $formattedTraces = array_merge($formattedTraces, $tracesFromException);
+        }
+
+        return $formattedTraces;
+    }
+
+
+    public function formatMessage($log)
+    {
+        [$message, $level, $category, $timestamp] = $log;
+        $traces = self::formatTracesIfExists($log);
+
+        $text = $this->parseMessage($message);
+
+        $formatted = [
+            'timestamp' => $this->getTime($timestamp),
+            'level' => \yii\log\Logger::getLevelName($level),
+            'category' => $category,
+            'traces' => $traces,
+            'message' => $text
+        ];
+
+        return Json::encode($formatted);
     }
 
     protected function getTime($timestamp)
     {
         return $this->disableTimestamp ? '' : parent::getTime($timestamp);
+    }
+
+    /**
+     * @param mixed $message
+     * @return array|mixed|string
+     */
+    protected function parseMessage($message)
+    {
+        if (is_string($message)) {
+            return ['data' => $message];
+        }
+
+        if (is_array($message) && array_keys($message) === 1) {
+            return ['data' => current($message)];
+        }
+
+        if (is_array($message)) {
+            return $message;
+        }
+
+        if ($message instanceof \Exception) {
+            $message = (string)$message->getMessage();
+        }
+
+        if (!is_string($message)) {
+            return VarDumper::export($message);
+        }
+
+        if (!$this->decodeMessage) {
+            return $message;
+        }
+
+        try {
+            return Json::decode($message, true);
+        } catch (InvalidArgumentException $e) {
+            return $message;
+        }
     }
 }
